@@ -6,17 +6,18 @@
     This script provides a user-friendly playbook to optimize a Windows installation.
     It performs the following actions in order:
     1.  Checks for Administrator privileges.
-    2.  Creates a System Restore Point as a safety precaution.
+    2.  Creates a System Restore Point as a safety precaution. It will offer to enable System Restore if it's disabled.
     3.  Asks the user to select and install a web browser (Brave, Firefox, or Chrome).
     4.  Asks the user to select and install popular applications using winget.
-    5.  Uninstalls a comprehensive list of bloatware and unwanted applications.
-    6.  Downloads and launches the ChrisTitusTech/winutil PowerShell script for advanced tweaking.
+    5.  If Spotify is installed, automatically installs Spicetify and Spicetify Marketplace.
+    6.  Uninstalls a comprehensive list of bloatware and unwanted applications.
+    7.  Downloads and launches the ChrisTitusTech/winutil PowerShell script for advanced tweaking.
 
 .AUTHOR
     leizark
 
 .VERSION
-    1.1
+    1.3
 #>
 
 #=======================================================================================================================
@@ -41,15 +42,51 @@ Write-Host
 Write-Host "[STEP 1] Creating a System Restore Point..." -ForegroundColor Cyan
 Write-Host "This is a safety measure in case you want to revert the changes." -ForegroundColor Gray
 
-try {
-    $restorePointDescription = "Pre-Optimization - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    Checkpoint-Computer -Description $restorePointDescription -RestorePointType "MODIFY_SETTINGS"
-    Write-Host "[SUCCESS] System Restore Point '$restorePointDescription' created successfully." -ForegroundColor Green
+$restorePointCreated = $false
+while (-not $restorePointCreated) {
+    try {
+        $restorePointDescription = "Pre-Optimization - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        Checkpoint-Computer -Description $restorePointDescription -RestorePointType "MODIFY_SETTINGS" -ErrorAction Stop
+        Write-Host "[SUCCESS] System Restore Point '$restorePointDescription' created successfully." -ForegroundColor Green
+        $restorePointCreated = $true
+    }
+    catch {
+        # Check for the specific 'service disabled' error
+        if ($_.Exception.Message -like "*the service cannot be started*") {
+            Write-Warning "System Restore is currently disabled on your system."
+            $enableChoice = Read-Host "Would you like this script to attempt to enable it for you? (y/n)"
+            if ($enableChoice -eq 'y') {
+                try {
+                    Write-Host "Attempting to enable System Restore..." -ForegroundColor Yellow
+                    # Ensure the Volume Shadow Copy service is running and set to automatic
+                    Set-Service -Name VSS -StartupType Automatic -ErrorAction Stop
+                    Start-Service -Name VSS -ErrorAction Stop
+                    # Enable System Protection on the system drive
+                    Enable-ComputerRestore -Drive "$($env:SystemDrive)" -ErrorAction Stop
+                    Write-Host "[SUCCESS] System Restore has been enabled for drive $($env:SystemDrive)." -ForegroundColor Green
+                    Write-Host "Retrying to create the restore point..."
+                    Start-Sleep -Seconds 2
+                    continue # This will restart the 'while' loop to try again
+                } catch {
+                    Write-Error "Failed to automatically enable System Restore. You may need to do it manually via System Properties > System Protection."
+                    break # Break the loop and proceed to the 'continue anyway?' question
+                }
+            } else {
+                 # User chose not to enable it, so we break the loop
+                 break
+            }
+        } else {
+            # Some other unexpected error occurred
+            Write-Error "An unexpected error occurred while creating the restore point: $($_.Exception.Message)"
+            break # Break on other errors
+        }
+    }
 }
-catch {
-    Write-Error "Failed to create a System Restore Point. $_"
-    Write-Warning "Continuing without a restore point is not recommended."
-    $confirmation = Read-Host "Do you want to continue anyway? (y/n)"
+
+# If the loop finished without successfully creating a restore point, ask the user for confirmation to proceed.
+if (-not $restorePointCreated) {
+    Write-Warning "Failed to create a System Restore Point."
+    $confirmation = Read-Host "Do you want to continue with the optimization anyway? This is not recommended. (y/n)"
     if ($confirmation -ne 'y') {
         Write-Host "Exiting script." -ForegroundColor Red
         Start-Sleep -Seconds 5
@@ -86,6 +123,7 @@ Write-Host
 #   APPLICATION INSTALLATION
 #=======================================================================================================================
 Write-Host "[STEP 3] Application Installation" -ForegroundColor Cyan
+$spotifyJustInstalled = $false # Flag for Spicetify installation
 $availableApps = @{
     'Discord' = 'Discord.Discord'
     'Telegram' = 'Telegram.TelegramDesktop'
@@ -117,6 +155,9 @@ foreach ($choice in $selectedApps) {
             Write-Host "Installing $appName..." -ForegroundColor Cyan
             winget install -e --id $appId --accept-package-agreements --accept-source-agreements
             Write-Host "[SUCCESS] Successfully installed $appName." -ForegroundColor Green
+            if ($appName -eq 'Spotify') {
+                $spotifyJustInstalled = $true
+            }
         }
         catch {
             Write-Error "Failed to install $appName. It might already be installed or winget failed."
@@ -127,6 +168,39 @@ foreach ($choice in $selectedApps) {
     }
 }
 Write-Host
+
+#=======================================================================================================================
+#   SPICETIFY INSTALLATION (IF SPOTIFY WAS INSTALLED)
+#=======================================================================================================================
+if ($spotifyJustInstalled) {
+    Write-Host "[STEP 3.5] Post-Install: Configuring Spicetify for Spotify" -ForegroundColor Cyan
+    Write-Host "This will install themes and extensions for Spotify. This may take a moment." -ForegroundColor Yellow
+    try {
+        # Install Spicetify CLI
+        Write-Host "Downloading and installing Spicetify-CLI..." -ForegroundColor Gray
+        Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/spicetify-cli/master/install.ps1" | Invoke-Expression
+
+        # Add Spicetify to the path for the current session to ensure commands are found
+        $env:Path += ";$env:APPDATA\spicetify"
+
+        Write-Host "Applying initial backup..." -ForegroundColor Gray
+        spicetify backup apply
+
+        # Install Spicetify Marketplace
+        Write-Host "Downloading and installing Spicetify Marketplace..." -ForegroundColor Gray
+        Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/spicetify-marketplace/main/resources/install.ps1" | Invoke-Expression
+        
+        Write-Host "Finalizing Spicetify setup..." -ForegroundColor Gray
+        spicetify apply
+
+        Write-Host "[SUCCESS] Spicetify and Marketplace have been installed successfully." -ForegroundColor Green
+        Write-Host "Open Spotify and you'll find the Marketplace in the left sidebar to browse for themes and extensions." -ForegroundColor Green
+    } catch {
+        Write-Error "An error occurred during Spicetify installation. $_"
+        Write-Warning "You may need to install it manually. See https://spicetify.app for details."
+    }
+    Write-Host
+}
 
 #=======================================================================================================================
 #   SYSTEM DEBLOAT
