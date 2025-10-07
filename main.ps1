@@ -1,28 +1,3 @@
-<#
-.SYNOPSIS
-    A PowerShell script to streamline and debloat Windows 11/10.
-
-.DESCRIPTION
-    This script provides a user-friendly playbook to optimize a Windows installation.
-    It performs the following actions in order:
-    1.  Checks for Administrator privileges.
-    2.  Creates a System Restore Point as a safety precaution. It will offer to enable System Restore if it's disabled.
-    3.  Asks the user to select and install a web browser (Brave, Firefox, or Chrome).
-    4.  Asks the user to select and install popular applications using winget.
-    5.  If Spotify is installed, automatically installs Spicetify and Spicetify Marketplace.
-    6.  Uninstalls a comprehensive list of bloatware and unwanted applications.
-    7.  Downloads and launches the ChrisTitusTech/winutil PowerShell script for advanced tweaking.
-
-.AUTHOR
-    leizark
-
-.VERSION
-    1.3
-#>
-
-#=======================================================================================================================
-#   ADMINISTRATOR CHECK
-#=======================================================================================================================
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Warning "This script must be run as Administrator!"
     Write-Host "Please right-click the script and choose 'Run as Administrator'." -ForegroundColor Yellow
@@ -30,12 +5,10 @@ if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-#=======================================================================================================================
-#   SCRIPT START & RESTORE POINT CREATION
-#=======================================================================================================================
 Clear-Host
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "  Windows Optimizer Playbook by Leizark" -ForegroundColor White
+Write-Host "  My Own Setup" -ForegroundColor White
+Write-Host "  (c) leizark" -ForegroundColor Gray
 Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host
 
@@ -51,39 +24,33 @@ while (-not $restorePointCreated) {
         $restorePointCreated = $true
     }
     catch {
-        # Check for the specific 'service disabled' error
         if ($_.Exception.Message -like "*the service cannot be started*") {
             Write-Warning "System Restore is currently disabled on your system."
             $enableChoice = Read-Host "Would you like this script to attempt to enable it for you? (y/n)"
             if ($enableChoice -eq 'y') {
                 try {
                     Write-Host "Attempting to enable System Restore..." -ForegroundColor Yellow
-                    # Ensure the Volume Shadow Copy service is running and set to automatic
                     Set-Service -Name VSS -StartupType Automatic -ErrorAction Stop
                     Start-Service -Name VSS -ErrorAction Stop
-                    # Enable System Protection on the system drive
                     Enable-ComputerRestore -Drive "$($env:SystemDrive)" -ErrorAction Stop
                     Write-Host "[SUCCESS] System Restore has been enabled for drive $($env:SystemDrive)." -ForegroundColor Green
                     Write-Host "Retrying to create the restore point..."
                     Start-Sleep -Seconds 2
-                    continue # This will restart the 'while' loop to try again
+                    continue
                 } catch {
                     Write-Error "Failed to automatically enable System Restore. You may need to do it manually via System Properties > System Protection."
-                    break # Break the loop and proceed to the 'continue anyway?' question
+                    break
                 }
             } else {
-                 # User chose not to enable it, so we break the loop
                  break
             }
         } else {
-            # Some other unexpected error occurred
             Write-Error "An unexpected error occurred while creating the restore point: $($_.Exception.Message)"
-            break # Break on other errors
+            break
         }
     }
 }
 
-# If the loop finished without successfully creating a restore point, ask the user for confirmation to proceed.
 if (-not $restorePointCreated) {
     Write-Warning "Failed to create a System Restore Point."
     $confirmation = Read-Host "Do you want to continue with the optimization anyway? This is not recommended. (y/n)"
@@ -95,9 +62,6 @@ if (-not $restorePointCreated) {
 }
 Write-Host
 
-#=======================================================================================================================
-#   BROWSER INSTALLATION
-#=======================================================================================================================
 Write-Host "[STEP 2] Browser Installation" -ForegroundColor Cyan
 Write-Host "Please choose a web browser to install:" -ForegroundColor Yellow
 Write-Host "  1: Brave Browser (Privacy-focused)"
@@ -119,11 +83,8 @@ catch {
 }
 Write-Host
 
-#=======================================================================================================================
-#   APPLICATION INSTALLATION
-#=======================================================================================================================
 Write-Host "[STEP 3] Application Installation" -ForegroundColor Cyan
-$spotifyJustInstalled = $false # Flag for Spicetify installation
+$spotifyJustInstalled = $false
 $availableApps = @{
     'Discord' = 'Discord.Discord'
     'Telegram' = 'Telegram.TelegramDesktop'
@@ -169,30 +130,15 @@ foreach ($choice in $selectedApps) {
 }
 Write-Host
 
-#=======================================================================================================================
-#   SPICETIFY INSTALLATION (IF SPOTIFY WAS INSTALLED)
-#=======================================================================================================================
 if ($spotifyJustInstalled) {
     Write-Host "[STEP 3.5] Post-Install: Configuring Spicetify for Spotify" -ForegroundColor Cyan
     Write-Host "This will install themes and extensions for Spotify. This may take a moment." -ForegroundColor Yellow
     try {
-        # Install Spicetify CLI
-        Write-Host "Downloading and installing Spicetify-CLI..." -ForegroundColor Gray
         Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/spicetify-cli/master/install.ps1" | Invoke-Expression
-
-        # Add Spicetify to the path for the current session to ensure commands are found
         $env:Path += ";$env:APPDATA\spicetify"
-
-        Write-Host "Applying initial backup..." -ForegroundColor Gray
         spicetify backup apply
-
-        # Install Spicetify Marketplace
-        Write-Host "Downloading and installing Spicetify Marketplace..." -ForegroundColor Gray
         Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/spicetify-marketplace/main/resources/install.ps1" | Invoke-Expression
-        
-        Write-Host "Finalizing Spicetify setup..." -ForegroundColor Gray
         spicetify apply
-
         Write-Host "[SUCCESS] Spicetify and Marketplace have been installed successfully." -ForegroundColor Green
         Write-Host "Open Spotify and you'll find the Marketplace in the left sidebar to browse for themes and extensions." -ForegroundColor Green
     } catch {
@@ -202,13 +148,9 @@ if ($spotifyJustInstalled) {
     Write-Host
 }
 
-#=======================================================================================================================
-#   SYSTEM DEBLOAT
-#=======================================================================================================================
 Write-Host "[STEP 4] System Debloat" -ForegroundColor Cyan
 Write-Host "Uninstalling common bloatware. This may take a few minutes." -ForegroundColor Yellow
 
-# --- Uninstall Microsoft Edge ---
 try {
     Write-Host "Attempting to uninstall Microsoft Edge..." -ForegroundColor Gray
     $edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application"
@@ -226,8 +168,6 @@ try {
     }
 } catch { Write-Error "Could not uninstall Edge. It might have been already removed." }
 
-
-# --- Uninstall OneDrive ---
 try {
     Write-Host "Attempting to uninstall OneDrive..." -ForegroundColor Gray
     Stop-Process -Name "OneDrive" -ErrorAction SilentlyContinue
@@ -238,77 +178,74 @@ try {
         Start-Process -FilePath $oneDrivePath -ArgumentList "/uninstall" -Wait
         Write-Host "[SUCCESS] OneDrive uninstaller executed." -ForegroundColor Green
     }
-    # Remove from Explorer
     Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\*" -Include '{018D5C66-4533-4307-9B53-224DE2ED1FE6}' -Recurse -ErrorAction SilentlyContinue
 } catch { Write-Error "Could not uninstall OneDrive."}
 
-
-# --- Uninstall Appx Packages ---
 $bloatwarePackages = @(
-    # Core Bloat
-    "*MicrosoftTeams*"
-    "*Outlook*"
-    "*Copilot*"
-    "*OneDrive*"
-    # Xbox & Gaming
-    "*Xbox*"
-    "*GamingApp*"
-    # Widgets & News
-    "*WebExperience*" # Windows Widgets
-    "*BingWeather*"
-    "*BingNews*"
-    # Other Pre-installed Apps
-    "*Microsoft.549981C3F5F10*" # Cortana
-    "*YourPhone*"
-    "*WindowsFeedbackHub*"
-    "*MicrosoftSolitaireCollection*"
-    "*GetHelp*"
-    "*ZuneMusic*"
-    "*ZuneVideo*"
-    "*WindowsMaps*"
-    "*People*"
-    "*Wallet*"
-    "*Todos*"
-    "*WindowsAlarms*"
-    "*WindowsCommunicationsApps*" # Mail and Calendar
+    "*MicrosoftTeams*","*Outlook*","*Copilot*","*OneDrive*","*Xbox*","*GamingApp*","*WebExperience*","*BingWeather*","*BingNews*","*Microsoft.549981C3F5F10*","*YourPhone*","*WindowsFeedbackHub*","*MicrosoftSolitaireCollection*","*GetHelp*","*ZuneMusic*","*ZuneVideo*","*WindowsMaps*","*People*","*Wallet*","*Todos*","*WindowsAlarms*","*WindowsCommunicationsApps*"
 )
 
 Write-Host "Removing modern (Appx) packages..." -ForegroundColor Gray
 foreach ($package in $bloatwarePackages) {
     Write-Host "  -> Searching for and removing '$package'..." -ForegroundColor Gray
-    # Remove for all current users
     Get-AppxPackage -AllUsers -Name $package | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
-    # Remove the provisioned package so it doesn't come back for new users
     Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $package -or $_.PackageName -like $package } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue
 }
 Write-Host "[SUCCESS] Debloat process completed." -ForegroundColor Green
 Write-Host
 
-#=======================================================================================================================
-#   LAUNCH WINUTIL
-#=======================================================================================================================
-Write-Host "[STEP 5] Launching Winutil for Advanced Tweaks" -ForegroundColor Cyan
-Write-Host "Downloading the latest version of the Winutil PowerShell script from ChrisTitusTech's GitHub..." -ForegroundColor Yellow
-
-try {
-    $winutilUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/25.09.05/winutil.ps1"
-    $winutilPath = "$env:TEMP\winutil.ps1"
-    
-    Invoke-WebRequest -Uri $winutilUrl -OutFile $winutilPath -UseBasicParsing
-    
-    Write-Host "[SUCCESS] Download complete. Launching Winutil in a new window..." -ForegroundColor Green
-    Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$winutilPath`""
+Write-Host "[STEP 5] Security & Performance Tweaks" -ForegroundColor Cyan
+$disableDefender = Read-Host "Would you like to disable Windows Defender? (This can improve performance but reduces security) (y/n)"
+if ($disableDefender -eq 'y') {
+    Write-Host "Disabling Windows Defender..." -ForegroundColor Yellow
+    try {
+        New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender" -Name DisableAntiSpyware -Value 1 -PropertyType DWORD -Force -ErrorAction Stop
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+        Write-Host "[SUCCESS] Windows Defender has been disabled." -ForegroundColor Green
+    } catch {
+        Write-Error "Failed to disable Windows Defender. It may be protected by Tamper Protection."
+    }
 }
-catch {
-    Write-Error "Failed to download or launch Winutil. $_"
-    Write-Host "You can run it manually by pasting this into a new PowerShell window:" -ForegroundColor Yellow
-    Write-Host "iex ((New-Object System.Net.WebClient).DownloadString('https://christitus.com/win'))" -ForegroundColor Yellow
+
+$disableMitigations = Read-Host "Would you like to disable CPU Mitigations (Spectre/Meltdown)? (This can improve performance but is a major security risk) (y/n)"
+if ($disableMitigations -eq 'y') {
+    Write-Host "Disabling CPU Mitigations..." -ForegroundColor Yellow
+    try {
+        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name FeatureSettingsOverride -Value 3 -PropertyType DWORD -Force -ErrorAction Stop
+        New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name FeatureSettingsOverrideMask -Value 3 -PropertyType DWORD -Force -ErrorAction Stop
+        Write-Host "[SUCCESS] CPU Mitigations have been disabled. A restart is required for this to take effect." -ForegroundColor Green
+    } catch {
+        Write-Error "Failed to set registry keys to disable CPU mitigations."
+    }
+}
+Write-Host
+
+Write-Host "[STEP 6] Optional: Launch Winutil for Advanced Tweaks" -ForegroundColor Cyan
+$launchWinutil = Read-Host "Would you like to download and launch the Winutil script for further advanced tweaking? (y/n)"
+
+if ($launchWinutil -eq 'y') {
+    Write-Host "Downloading the latest version of the Winutil PowerShell script from ChrisTitusTech's GitHub..." -ForegroundColor Yellow
+    try {
+        $winutilUrl = "https://github.com/ChrisTitusTech/winutil/releases/download/25.09.05/winutil.ps1"
+        $winutilPath = "$env:TEMP\winutil.ps1"
+        Invoke-WebRequest -Uri $winutilUrl -OutFile $winutilPath -UseBasicParsing
+        Write-Host "[SUCCESS] Download complete. Launching Winutil in a new window..." -ForegroundColor Green
+        Start-Process powershell.exe -ArgumentList "-ExecutionPolicy Bypass -File `"$winutilPath`""
+    }
+    catch {
+        Write-Error "Failed to download or launch Winutil. $_"
+        Write-Host "You can run it manually by pasting this into a new PowerShell window:" -ForegroundColor Yellow
+        Write-Host "iex ((New-Object System.Net.WebClient).DownloadString('https://christitus.com/win'))" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "Skipping Winutil." -ForegroundColor Yellow
 }
 Write-Host
 
 Write-Host "==============================================" -ForegroundColor Cyan
 Write-Host "  Optimization Playbook Finished!" -ForegroundColor White
 Write-Host "==============================================" -ForegroundColor Cyan
-Write-Host "The script has completed all automated tasks. Winutil should be running in a new window for further customization." -ForegroundColor Green
+Write-Host "The script has completed all selected tasks. It's recommended to restart your computer." -ForegroundColor Green
 Start-Sleep -Seconds 10
 
