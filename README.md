@@ -1,4 +1,4 @@
-# [My Own Optimizer](readme.png)
+# ![My Own Optimizer](https://github.com/asecretmanthatyoudontneedtoknow/my-own-optimizatorreadme.png?raw=true)
 
 This script removes bloatware, installs your favorite apps, and sets up your favorite browser. Honestly, I originally made this for myself, but I figured why not share it? If you want to give it a try, feel free to use it!
 
